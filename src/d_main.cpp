@@ -325,7 +325,7 @@ bool advancedemo;
 FILE *debugfile;
 gamestate_t wipegamestate = GS_DEMOSCREEN;	// can be -1 to force a wipe
 bool PageBlank;
-FGameTexture *Advisory;
+FTextureID Advisory;
 FTextureID Page;
 const char *Subtitle;
 bool nospriterename;
@@ -335,7 +335,6 @@ int restart = 0;
 bool AppActive = true;
 bool playedtitlemusic;
 
-FStartupScreen* StartWindow;
 FStartScreen* StartScreen;
 
 cycle_t FrameCycles;
@@ -1177,7 +1176,7 @@ void D_DoomLoop ()
 	r_NoInterpolate = true;
 	Page.SetInvalid();
 	Subtitle = nullptr;
-	Advisory = nullptr;
+	Advisory.SetInvalid();
 
 	vid_cursor.Callback();
 
@@ -1265,7 +1264,7 @@ void D_PageDrawer (void)
 	ClearRect(twod, 0, 0, SCREENWIDTH, SCREENHEIGHT, 0, 0);
 	if (Page.Exists())
 	{
-		DrawTexture(twod, TexMan.GetGameTexture(Page, true), 0, 0,
+		DrawTexture(twod, Page, true, 0, 0,
 			DTA_Fullscreen, true,
 			DTA_Masked, false,
 			DTA_BilinearFilter, true,
@@ -1276,9 +1275,9 @@ void D_PageDrawer (void)
 		FFont* font = generic_ui ? NewSmallFont : SmallFont;
 		DrawFullscreenSubtitle(font, GStrings[Subtitle]);
 	}
-	if (Advisory != nullptr)
+	if (Advisory.isValid())
 	{
-		DrawTexture(twod, Advisory, 4, 160, DTA_320x200, true, TAG_DONE);
+		DrawTexture(twod, Advisory, true, 4, 160, DTA_320x200, true, TAG_DONE);
 	}
 }
 
@@ -1467,7 +1466,7 @@ void D_DoAdvanceDemo (void)
 	case 3:
 		if (gameinfo.advisoryTime)
 		{
-			Advisory = TexMan.GetGameTextureByName("ADVISOR");
+			Advisory = TexMan.GetTextureID("ADVISOR", ETextureType::MiscPatch);
 			demosequence = 1;
 			pagetic = (int)(gameinfo.advisoryTime * TICRATE);
 			break;
@@ -1476,7 +1475,7 @@ void D_DoAdvanceDemo (void)
 		[[fallthrough]];
 
 	case 1:
-		Advisory = NULL;
+		Advisory.SetInvalid();
 		if (!M_DemoNoPlay)
 		{
 			democount++;
@@ -3098,6 +3097,17 @@ static int D_InitGame(const FIWADInfo* iwad_info, TArray<FString>& allwads, TArr
 	int max_progress = TexMan.GuesstimateNumTextures();
 	int per_shader_progress = 0;//screen->GetShaderCount()? (max_progress / 10 / screen->GetShaderCount()) : 0;
 	bool nostartscreen = batchrun || restart || Args->CheckParm("-join") || Args->CheckParm("-host") || Args->CheckParm("-norun");
+
+	if (GameStartupInfo.Type == FStartupInfo::DefaultStartup)
+	{
+		if (gameinfo.gametype == GAME_Hexen)
+			GameStartupInfo.Type = FStartupInfo::HexenStartup;
+		else if (gameinfo.gametype == GAME_Heretic)
+			GameStartupInfo.Type = FStartupInfo::HereticStartup;
+		else if (gameinfo.gametype == GAME_Strife)
+			GameStartupInfo.Type = FStartupInfo::StrifeStartup;
+	}
+
 	StartScreen = nostartscreen? nullptr : GetGameStartScreen(per_shader_progress > 0 ? max_progress * 10 / 9 : max_progress + 3);
 	
 	GameConfig->DoKeySetup(gameinfo.ConfigName);
@@ -3376,16 +3386,19 @@ static int D_InitGame(const FIWADInfo* iwad_info, TArray<FString>& allwads, TArr
 		}
 
 		if (StartScreen == nullptr) V_Init2();
-		while(!screen->CompileNextShader())
-		{
-			// here we can do some visual updates later
-		}
-		if (StartScreen) 
+		if (StartScreen)
 		{
 			StartScreen->Progress(max_progress);	// advance progress bar to the end.
 			StartScreen->Render(true);
+			StartScreen->Progress(max_progress);	// do this again because Progress advances the counter after redrawing.
+			StartScreen->Render(true);
 			delete StartScreen;
 			StartScreen = NULL;
+		}
+
+		while(!screen->CompileNextShader())
+		{
+			// here we can do some visual updates later
 		}
 		twod->fullscreenautoaspect = gameinfo.fullscreenautoaspect;
 		// Initialize the size of the 2D drawer so that an attempt to access it outside the draw code won't crash.
