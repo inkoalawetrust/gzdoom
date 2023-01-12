@@ -6095,7 +6095,7 @@ int P_RadiusAttack(AActor *bombspot, AActor *bombsource, int bombdamage, int bom
 			continue;
 		}
 
-		if (thing != bombsource && bombsource->player && P_ShouldPassThroughPlayer(bombsource, thing))
+		if (bombsource && thing != bombsource && bombsource->player && P_ShouldPassThroughPlayer(bombsource, thing))
 			continue;
 
 		targets.Push(thing);
