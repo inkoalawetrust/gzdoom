@@ -498,6 +498,7 @@ struct LevelLocals native
 	native readonly Array<@Vertex> Vertexes;
 	native readonly Array<@LinePortal> LinePortals;
 	native internal readonly Array<@SectorPortal> SectorPortals;
+	native Array<@Polyobj> Polyobjects;
 	
 	native readonly int time;
 	native readonly int maptime;
@@ -616,6 +617,7 @@ struct LevelLocals native
 	native clearscope int PlayerNum(PlayerInfo player) const;
 
 	native String GetChecksum() const;
+	native Polyobj GetPolyobj(int polyNum) const;
 
 	native void ChangeSky(TextureID sky1, TextureID sky2 );
 	native void ChangeSkyMist(TextureID skymist, bool usemist = true);
