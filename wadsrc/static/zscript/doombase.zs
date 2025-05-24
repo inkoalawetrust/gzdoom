@@ -883,6 +883,12 @@ class Floor : MovingFloor native
 	{
 		return level.CreateFloor(sec, floortype, ln, speed, height, crush, change, crushmode, hereticlower);
 	}
+
+	//[inkoalawetrust] HACK: ZScript needs a getter for getting the floor type from a sector because it confuses Floor(ptr) and (Floor)(ptr) casts with the floor() math builtin.
+	static Floor GetFloorThinker(Sector sec)
+	{
+		return sec.GetFloorThinker();
+	}
 }
 
 class Ceiling : MovingCeiling native

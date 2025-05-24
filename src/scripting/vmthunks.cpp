@@ -1190,6 +1190,14 @@ DEFINE_ACTION_FUNCTION_NATIVE(_Sector, SetXOffset, SetXOffset)
 	 ACTION_RETURN_INT(level.tagManager.GetSectorTag(self, index));
  }
 
+ //[inkoalawetrust] HACK: ZScript needs a getter for getting the floor type from a sector because it confuses Floor(ptr) and (Floor)(ptr) casts with the floor() math builtin.
+ DEFINE_ACTION_FUNCTION(_Sector, GetFloorThinker)
+ {
+	 PARAM_SELF_STRUCT_PROLOGUE(sector_t);
+	 ACTION_RETURN_OBJECT(dyn_cast<DFloor>(self->floordata.Get()));
+ }
+
+
  static int Get3DFloorTexture(F3DFloor *self, int pos)
  {
  	 if ( pos )

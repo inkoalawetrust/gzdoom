@@ -600,6 +600,9 @@ struct Sector native play
 	native clearscope SeqNode CheckSoundSequence (int chan) const;
 	native void StopSoundSequence(int chan);
 	native clearscope bool IsMakingLoopingSound () const;
+
+	//[inkoalawetrust] HACK: ZScript needs a getter for getting the floor type from a sector because it confuses Floor(ptr) and (Floor)(ptr) casts with the floor() math builtin.
+	native clearscope Floor GetFloorThinker() const;
 	
 	 clearscope bool isSecret() const
 	 {
