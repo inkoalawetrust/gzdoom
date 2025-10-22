@@ -986,7 +986,7 @@ class Ceiling : MovingCeiling native
 	
 }
 
-class PolyAction : Thinker native
+class PolyAction : Thinker native Sealed (RotatePoly, MovePoly, MovePolyTo, PolyDoor)
 {
 	native double GetSpeed() const;
 	native double GetDistance() const;

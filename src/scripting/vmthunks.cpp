@@ -2134,19 +2134,6 @@ DEFINE_ACTION_FUNCTION_NATIVE(FPolyObj, ClosestPoint, ClosestPoint)
 	return numret;
 }
 
-static void GetBounds(FPolyObj* self, DVector4* out)
-{
-	*out = DVector4(self->Bounds.Top(), self->Bounds.Bottom(), self->Bounds.Left(), self->Bounds.Right());
-}
-
-DEFINE_ACTION_FUNCTION_NATIVE(FPolyObj, GetBounds, GetBounds)
-{
-	PARAM_SELF_STRUCT_PROLOGUE(FPolyObj);
-	DVector4 res = { 0.0, 0.0, 0.0, 0.0 };
-	GetBounds(self, &res);
-	ACTION_RETURN_VEC4(res);
-}
-
 static FPolyObj* GetPolyobj(FLevelLocals* self, int polyNum)
 {
 	return self->GetPolyobj(polyNum);
@@ -3147,6 +3134,7 @@ DEFINE_FIELD_X(Polyobj, FPolyObj, Linedefs)
 DEFINE_FIELD_X(Polyobj, FPolyObj, Vertices)
 DEFINE_FIELD_X(Polyobj, FPolyObj, Angle)
 DEFINE_FIELD_X(Polyobj, FPolyObj, tag)
+DEFINE_FIELD_X(Polyobj, FPolyObj, bbox)
 DEFINE_FIELD_X(Polyobj, FPolyObj, crush)
 DEFINE_FIELD_X(Polyobj, FPolyObj, bHurtOnTouch)
 DEFINE_FIELD_X(Polyobj, FPolyObj, bBlocked)

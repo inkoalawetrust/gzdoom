@@ -340,6 +340,7 @@ struct Polyobj native play
 	native readonly Array<Vertex> Vertices;
 	native readonly double Angle;
 	native readonly int tag;
+	native readonly int bbox[4];
 	native readonly int crush;
 	native readonly bool bHurtOnTouch;
 	native readonly bool bBlocked;
@@ -351,7 +352,6 @@ struct Polyobj native play
 	native clearscope vector2 GetStartSpot() const;
 	native clearscope vector2 GetCenterSpot() const;
 	native clearscope vector2, Side ClosestPoint(Vector2 pos) const;
-	native clearscope vector4 GetBounds() const;
 }
 
 // This encapsulates all info Doom's original 'special' field contained - for saving and transferring.
