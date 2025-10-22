@@ -5,6 +5,7 @@
 // Copyright 1998-1998 Chi Hoang, Lee Killough, Jim Flynn, Rand Phares, Ty Halderman
 // Copyright 1999-2016 Randy Heit
 // Copyright 2002-2016 Christoph Oelckers
+// Copyright 2017-2025 GZDoom Maintainers and Contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -58,42 +59,38 @@
 **
 */
 
-
-#include "doomdef.h"
-#include "d_event.h"
-#include "p_local.h"
-#include "doomstat.h"
-#include "s_sound.h"
-#include "gi.h"
-#include "m_random.h"
-#include "p_pspr.h"
-#include "p_enemy.h"
-#include "a_sharedglobal.h"
 #include "a_keys.h"
-#include "filesystem.h"
-#include "cmdlib.h"
-#include "sbar.h"
-#include "intermission/intermission.h"
-#include "c_console.h"
-#include "c_dispatch.h"
-#include "d_net.h"
-#include "serializer_doom.h"
-#include "serialize_obj.h"
-#include "d_player.h"
-#include "r_utility.h"
-#include "p_blockmap.h"
 #include "a_morph.h"
-#include "p_spec.h"
-#include "vm.h"
-#include "g_levellocals.h"
 #include "actorinlines.h"
-#include "p_acs.h"
-#include "events.h"
-#include "g_game.h"
-#include "v_video.h"
-#include "gstrings.h"
-#include "s_music.h"
+#include "c_dispatch.h"
+#include "cmdlib.h"
+#include "d_event.h"
 #include "d_main.h"
+#include "d_net.h"
+#include "d_player.h"
+#include "doomdef.h"
+#include "doomstat.h"
+#include "events.h"
+#include "filesystem.h"
+#include "g_game.h"
+#include "g_levellocals.h"
+#include "gi.h"
+#include "gstrings.h"
+#include "intermission/intermission.h"
+#include "m_random.h"
+#include "p_acs.h"
+#include "p_blockmap.h"
+#include "p_enemy.h"
+#include "p_local.h"
+#include "p_pspr.h"
+#include "p_spec.h"
+#include "r_utility.h"
+#include "s_music.h"
+#include "s_sound.h"
+#include "sbar.h"
+#include "serialize_obj.h"
+#include "serializer_doom.h"
+#include "vm.h"
 
 extern int paused;
 
@@ -284,6 +281,7 @@ void player_t::CopyFrom(player_t &p, bool copyPSP)
 	viewheight = p.viewheight;
 	deltaviewheight = p.deltaviewheight;
 	bob = p.bob;
+	BobTimer = p.BobTimer;
 	Vel = p.Vel;
 	centering = p.centering;
 	turnticks = p.turnticks;
@@ -477,8 +475,6 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, SetSubtitleNumber)
 	return 0;
 }
 
-
-
 int player_t::GetSpawnClass()
 {
 	const PClass * type = PlayerClasses[CurrentPlayerClass].Type;
@@ -523,7 +519,7 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, SetSkin)
 {
 	PARAM_SELF_STRUCT_PROLOGUE(player_t);
 	PARAM_INT(skinIndex);
-	if (skinIndex >= 0 && skinIndex < Skins.size())
+	if (skinIndex >= 0 && skinIndex < Skins.SSize())
 	{
 		// commented code - cvar_set calls this automatically, along with saving the skin selection.
 		//self->userinfo.SkinNumChanged(skinIndex);
@@ -647,7 +643,6 @@ DEFINE_ACTION_FUNCTION_NATIVE(APlayerPawn, GetPainFlashForType, GetPainFlash)
 EXTERN_CVAR(Float, maxviewpitch)
 EXTERN_CVAR(Bool, cl_oldfreelooklimit);
 
-
 static int GetSoftPitch(bool down)
 {
 	int MAX_DN_ANGLE = min(56, (int)maxviewpitch); // Max looking down angle
@@ -684,7 +679,6 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, SendPitchLimits)
 	return 0;
 }
 
-
 bool player_t::HasWeaponsInSlot(int slot) const
 {
 	for (int i = 0; i < weapons.SlotSize(slot); i++)
@@ -701,7 +695,6 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, HasWeaponsInSlot)
 	PARAM_INT(slot);
 	ACTION_RETURN_BOOL(self->HasWeaponsInSlot(slot));
 }
-
 
 bool player_t::Resurrect()
 {
@@ -745,6 +738,41 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, Resurrect)
 	ACTION_RETURN_BOOL(self->Resurrect());
 }
 
+player_t* player_t::GetNextPlayer(player_t* p, bool noBots)
+{
+	int pNum = player_t::GetNextPlayerNumber(p == nullptr ? -1 : p - players);
+	return pNum != -1 ? &players[pNum] : nullptr;
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(_PlayerInfo, GetNextPlayer, player_t::GetNextPlayer)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(p, player_t);
+	PARAM_BOOL(noBots);
+
+	ACTION_RETURN_POINTER(player_t::GetNextPlayer(p, noBots));
+}
+
+int player_t::GetNextPlayerNumber(int pNum, bool noBots)
+{
+	int i = max<int>(pNum + 1, 0);
+	for (; i < MaxClients; ++i)
+	{
+		if (playeringame[i] && (!noBots || players[i].Bot == nullptr))
+			break;
+	}
+
+	return i < MaxClients ? i : -1;
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(_PlayerInfo, GetNextPlayerNumber, player_t::GetNextPlayerNumber)
+{
+	PARAM_PROLOGUE;
+	PARAM_INT(pNum);
+	PARAM_BOOL(noBots);
+
+	ACTION_RETURN_INT(player_t::GetNextPlayerNumber(pNum, noBots));
+}
 
 DEFINE_ACTION_FUNCTION(_PlayerInfo, GetUserName)
 {
@@ -849,7 +877,6 @@ DEFINE_ACTION_FUNCTION(_PlayerInfo, GetStillBob)
 	ACTION_RETURN_FLOAT(self->userinfo.GetStillBob());
 }
 
-
 //===========================================================================
 //
 // 
@@ -941,11 +968,11 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlayerScream)
 	{
 		if (self->DeathSound != NO_SOUND)
 		{
-			S_Sound (self, CHAN_VOICE, 0, self->DeathSound, 1, ATTN_NORM);
+			S_Sound (self, CHAN_VOICE, CHANF_NORUMBLE, self->DeathSound, 1, ATTN_NORM);
 		}
 		else
 		{
-			S_Sound (self, CHAN_VOICE, 0, "*death", 1, ATTN_NORM);
+			S_Sound (self, CHAN_VOICE, CHANF_NORUMBLE, "*death", 1, ATTN_NORM);
 		}
 		return 0;
 	}
@@ -995,10 +1022,9 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlayerScream)
 			}
 		}
 	}
-	S_Sound (self, chan, 0, sound, 1, ATTN_NORM);
+	S_Sound (self, chan, CHANF_NORUMBLE, sound, 1, ATTN_NORM);
 	return 0;
 }
-
 
 //===========================================================================
 //
@@ -1248,7 +1274,6 @@ void P_CheckUse(player_t *player)
 	}
 }
 
-
 DEFINE_ACTION_FUNCTION(APlayerPawn, CheckUse)
 {
 	PARAM_SELF_PROLOGUE(AActor);
@@ -1293,6 +1318,8 @@ void P_PlayerThink (player_t *player)
 	{
 		player->LastSafePos = player->mo->Pos();
 	}
+
+	++player->BobTimer;
 
 	// Bots do not think in freeze mode.
 	if (player->mo->Level->isFrozen() && player->Bot != nullptr)
@@ -1436,25 +1463,17 @@ nodetype *RestoreNodeList(AActor *act, nodetype *linktype::*otherlist, TArray<no
 
 void P_PredictPlayer (player_t *player)
 {
-	int maxtic;
-
-	if (demoplayback ||
+	if (demoplayback || gamestate != GS_LEVEL ||
 		player->mo == NULL ||
 		player != player->mo->Level->GetConsolePlayer() ||
-		player->playerstate != PST_LIVE ||
-		(!netgame && cl_debugprediction == 0) ||
-		/*player->morphTics ||*/
 		(player->cheats & CF_PREDICTING))
 	{
 		return;
 	}
 
-	maxtic = ClientTic;
-
-	if (gametic == maxtic)
-	{
-		return;
-	}
+	bPredictionGuard = true;
+	// Avoid memcpying in bad pointers.
+	GC::CheckGC();
 
 	FRandom::SaveRNGState(PredictionRNG);
 
@@ -1508,6 +1527,12 @@ void P_PredictPlayer (player_t *player)
 	}
 	act->BlockNode = NULL;
 
+	int maxtic = ClientTic;
+	if (gametic == maxtic || player->playerstate != PST_LIVE)
+	{
+		return;
+	}
+
 	// This essentially acts like a mini P_Ticker where only the stuff relevant to the client is actually
 	// called. Call order is preserved.
 	bool rubberband = false, rubberbandLimit = false;
@@ -1519,7 +1544,6 @@ void P_PredictPlayer (player_t *player)
 		// Make sure any portal paths have been cleared from the previous movement.
 		R_ClearInterpolationPath();
 		r_NoInterpolate = false;
-		// Because we're always predicting, this will get set by teleporters and then can never unset itself in the renderer properly.
 		player->mo->renderflags &= ~RF_NOINTERPOLATEVIEW;
 
 		// Got snagged on something. Start correcting towards the player's final predicted position. We're
@@ -1678,9 +1702,12 @@ void P_UnPredictPlayer ()
 		}
 
 		act->UpdateRenderSectorList();
+		act->renderflags &= ~RF_NOINTERPOLATEVIEW;
 
 		actInvSel = InvSel;
 		player->inventorytics = inventorytics;
+
+		bPredictionGuard = false;
 	}
 }
 
@@ -1710,6 +1737,7 @@ void player_t::Serialize(FSerializer &arc)
 		("viewheight", viewheight)
 		("deltaviewheight", deltaviewheight)
 		("bob", bob)
+		("bobtimer", BobTimer)
 		("vel", Vel)
 		("centering", centering)
 		("health", health)
@@ -1802,7 +1830,6 @@ bool P_IsPlayerTotallyFrozen(const player_t *player)
 		player->mo->isFrozen();
 }
 
-
 //==========================================================================
 //
 // native members
@@ -1819,6 +1846,7 @@ DEFINE_FIELD_X(PlayerInfo, player_t, viewz)
 DEFINE_FIELD_X(PlayerInfo, player_t, viewheight)
 DEFINE_FIELD_X(PlayerInfo, player_t, deltaviewheight)
 DEFINE_FIELD_X(PlayerInfo, player_t, bob)
+DEFINE_FIELD_X(PlayerInfo, player_t, BobTimer)
 DEFINE_FIELD_X(PlayerInfo, player_t, Vel)
 DEFINE_FIELD_X(PlayerInfo, player_t, centering)
 DEFINE_FIELD_X(PlayerInfo, player_t, turnticks)

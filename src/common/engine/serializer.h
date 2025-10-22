@@ -230,7 +230,9 @@ public:
 	FString mLumpName;
 };
 
+#if !defined(__sun) || !defined(__sun__)
 FSerializer& Serialize(FSerializer& arc, const char* key, char& value, char* defval);
+#endif
 
 FSerializer &Serialize(FSerializer &arc, const char *key, bool &value, bool *defval);
 FSerializer &Serialize(FSerializer &arc, const char *key, int64_t &value, int64_t *defval);
@@ -255,6 +257,7 @@ FSerializer &Serialize(FSerializer &arc, const char *key, ModelAnim &ao, ModelAn
 FSerializer &Serialize(FSerializer &arc, const char *key, ModelAnimFrame &ao, ModelAnimFrame *def);
 FSerializer &Serialize(FSerializer& arc, const char* key, FTranslationID& value, FTranslationID* defval);
 FSerializer &Serialize(FSerializer& arc, const char* key, BoneOverride& value, BoneOverride* defval);
+FSerializer &Serialize(FSerializer& arc, const char* key, TRS& value, TRS* defval);
 
 void SerializeFunctionPointer(FSerializer &arc, const char *key, FunctionPointerValue *&p);
 

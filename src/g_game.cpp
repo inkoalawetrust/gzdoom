@@ -3,6 +3,7 @@
 // Copyright 1993-1996 id Software
 // Copyright 1999-2016 Randy Heit
 // Copyright 2002-2016 Christoph Oelckers
+// Copyright 2017-2025 GZDoom Maintainers and Contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,78 +21,69 @@
 //-----------------------------------------------------------------------------
 //
 
-
-
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stddef.h>
 #include <memory>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "i_time.h"
-
-#include "version.h"
-#include "doomdef.h" 
-#include "doomstat.h"
-#include "d_protocol.h"
+#include "a_dynlight.h"
+#include "a_keys.h"
+#include "a_morph.h"
+#include "am_map.h"
+#include "c_bind.h"
+#include "c_buttons.h"
+#include "c_console.h"
+#include "c_dispatch.h"
+#include "cmdlib.h"
+#include "d_buttons.h"
+#include "d_event.h"
+#include "d_main.h"
+#include "d_net.h"
 #include "d_netinf.h"
+#include "d_protocol.h"
+#include "dobjgc.h"
+#include "doomdef.h"
+#include "doommenu.h"
+#include "doomstat.h"
+#include "events.h"
+#include "filesystem.h"
+#include "fs_findfile.h"
+#include "g_game.h"
+#include "g_hub.h"
+#include "g_levellocals.h"
+#include "gi.h"
+#include "gstrings.h"
+#include "hu_stuff.h"
+#include "hwrenderer/scene/hw_drawinfo.h"
+#include "i_interface.h"
+#include "i_system.h"
+#include "i_time.h"
 #include "intermission/intermission.h"
 #include "m_argv.h"
 #include "m_misc.h"
-#include "menu.h"
-#include "m_crc32.h"
-#include "p_saveg.h"
-#include "p_tick.h"
-#include "d_main.h"
-#include "wi_stuff.h"
-#include "hu_stuff.h"
-#include "st_stuff.h"
-#include "am_map.h"
-#include "c_console.h"
-#include "c_bind.h"
-#include "c_dispatch.h"
-#include "filesystem.h"
-#include "p_local.h" 
-#include "gstrings.h"
-#include "r_sky.h"
-#include "g_game.h"
-#include "sbar.h"
 #include "m_png.h"
-#include "a_keys.h"
-#include "cmdlib.h"
-#include "d_net.h"
-#include "d_event.h"
-#include "p_acs.h"
-#include "p_effect.h"
-#include "m_joy.h"
-#include "r_utility.h"
-#include "a_morph.h"
-#include "p_spec.h"
-#include "serializer_doom.h"
-#include "vm.h"
-#include "dobjgc.h"
-#include "gi.h"
-#include "a_dynlight.h"
-#include "i_system.h"
-#include "p_conversation.h"
-#include "v_palette.h"
-#include "s_music.h"
-#include "p_setup.h"
-#include "d_event.h"
+#include "menu.h"
 #include "model.h"
-
-#include "v_video.h"
-#include "g_hub.h"
-#include "g_levellocals.h"
-#include "events.h"
-#include "c_buttons.h"
-#include "d_buttons.h"
-#include "hwrenderer/scene/hw_drawinfo.h"
-#include "doommenu.h"
+#include "p_acs.h"
+#include "p_conversation.h"
+#include "p_effect.h"
+#include "p_local.h"
+#include "p_saveg.h"
+#include "p_setup.h"
+#include "p_spec.h"
+#include "p_tick.h"
+#include "r_sky.h"
+#include "r_utility.h"
+#include "s_music.h"
+#include "sbar.h"
 #include "screenjob.h"
-#include "i_interface.h"
-#include "fs_findfile.h"
-
+#include "serializer_doom.h"
+#include "st_stuff.h"
+#include "v_palette.h"
+#include "version.h"
+#include "vm.h"
+#include "wi_stuff.h"
 
 static FRandom pr_dmspawn ("DMSpawn");
 static FRandom pr_pspawn ("PlayerSpawn");
@@ -127,7 +119,8 @@ CVAR (Bool, cl_waitforsave, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR (Bool, enablescriptscreenshot, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR (Bool, cl_restartondeath, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 EXTERN_CVAR (Float, con_midtime);
-EXTERN_CVAR(Bool, net_disablepause)
+EXTERN_CVAR(Int, net_disablepause)
+EXTERN_CVAR(Bool, net_limitsaves)
 
 //==========================================================================
 //
@@ -177,8 +170,8 @@ bool 			demorecording;
 bool 			demoplayback;
 bool			demonew;				// [RH] Only used around G_InitNew for demos
 int				demover;
-uint8_t*			demobuffer;
-uint8_t*			demo_p;
+TArray<uint8_t>	demobuffer;
+TArrayView<uint8_t>	demo_p;
 uint8_t*			democompspot;
 uint8_t*			demobodyspot;
 size_t			maxdemosize;
@@ -210,7 +203,17 @@ CVAR (Bool,		freelook,		true,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always mlook?
 CVAR (Bool,		lookstrafe,		false,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always strafe with mouse?
 CVAR (Float,	m_forward,		1.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
 CVAR (Float,	m_side,			2.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
- 
+
+#define ANALOG_LOOK_BASE	1280
+
+// You can change cl_analog_sensitivity_pitch's default to 1.6f if the old historical
+// behavior is preferred, but IMO that is so fast that it's practically unplayable...
+CVAR (Float, cl_analog_sensitivity_yaw,		1.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+CVAR (Float, cl_analog_sensitivity_pitch,	0.6f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+
+CVAR (Bool, cl_analog_run, true, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+CVAR (Bool, cl_analog_straferun, false, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+
 int 			turnheld;								// for accelerative turning 
 
 EXTERN_CVAR (Bool, invertmouse)
@@ -246,7 +249,7 @@ CVAR (Bool, teamplay, false, CVAR_SERVERINFO)
 #endif // _M_X64 && _MSC_VER < 1910
 
 // [RH] Allow turbo setting anytime during game
-CUSTOM_CVAR (Float, turbo, 100.f, CVAR_NOINITCALL)
+CUSTOM_CVAR (Float, turbo, 100.f, CVAR_NOINITCALL | CVAR_CHEAT)
 {
 	if (self < 10.f)
 	{
@@ -317,7 +320,7 @@ CCMD (slot)
 			// Needs to be redone
 			IFVIRTUALPTRNAME(mo, NAME_PlayerPawn, PickWeapon)
 			{
-				SendItemUse = VMCallSingle<AActor *>(func, mo, slot, (int)!(dmflags2 & DF2_DONTCHECKAMMO));
+				SendItemUse = CallVM<AActor *>(func, mo, slot, (int)!(dmflags2 & DF2_DONTCHECKAMMO));
 			}
 		}
 
@@ -351,10 +354,18 @@ CCMD (land)
 
 CCMD (pause)
 {
-	if (netgame && !players[consoleplayer].settings_controller && net_disablepause)
+	if (netgame)
 	{
-		Printf("Only settings controllers can currently (un)pause the game\n");
-		return;
+		if (net_disablepause == 2 && (!paused || !players[consoleplayer].settings_controller))
+		{
+			Printf("Pausing the game is currently disabled\n");
+			return;
+		}
+		else if (net_disablepause == 1 && !players[consoleplayer].settings_controller)
+		{
+			Printf("Only settings controllers can currently (un)pause the game\n");
+			return;
+		}
 	}
 
 	sendpause = true;
@@ -373,7 +384,7 @@ CCMD (weapnext)
 		// Needs to be redone
 		IFVIRTUALPTRNAME(mo, NAME_PlayerPawn, PickNextWeapon)
 		{
-			SendItemUse = VMCallSingle<AActor *>(func, mo);
+			SendItemUse = CallVM<AActor *>(func, mo);
 		}
 	}
 
@@ -398,7 +409,7 @@ CCMD (weapprev)
 		// Needs to be redone
 		IFVIRTUALPTRNAME(mo, NAME_PlayerPawn, PickPrevWeapon)
 		{
-			SendItemUse = VMCallSingle<AActor *>(func, mo);
+			SendItemUse = CallVM<AActor *>(func, mo);
 		}
 	}
 
@@ -437,7 +448,7 @@ CCMD (invnext)
 	{
 		IFVM(PlayerPawn, InvNext)
 		{
-			VMCallVoid<AActor *>(func, players[consoleplayer].mo);
+			CallVM<void>(func, players[consoleplayer].mo);
 		}
 	}
 }
@@ -448,7 +459,7 @@ CCMD(invprev)
 	{
 		IFVM(PlayerPawn, InvPrev)
 		{
-			VMCallVoid<AActor *>(func, players[consoleplayer].mo);
+			CallVM<void>(func, players[consoleplayer].mo);
 		}
 	}
 }
@@ -523,7 +534,7 @@ CCMD (useflechette)
 	if (players[consoleplayer].mo == nullptr) return;
 	IFVIRTUALPTRNAME(players[consoleplayer].mo, NAME_PlayerPawn, GetFlechetteItem)
 	{
-		AActor * cls = VMCallSingle<AActor *>(func, players[consoleplayer].mo);
+		AActor * cls = CallVM<AActor *>(func, players[consoleplayer].mo);
 
 		if (cls != nullptr) SendItemUse = cls;
 	}
@@ -602,6 +613,9 @@ void G_BuildTiccmd (usercmd_t *cmd)
 	base = G_BaseTiccmd (); 
 	*cmd = *base;
 
+	// Update axis polling for the button map
+	buttonMap.GetAxes();
+
 	strafe = buttonMap.ButtonDown(Button_Strafe);
 	speed = buttonMap.ButtonDown(Button_Speed) ^ (int)cl_run;
 
@@ -610,7 +624,7 @@ void G_BuildTiccmd (usercmd_t *cmd)
 	// [RH] only use two stage accelerative turning on the keyboard
 	//		and not the joystick, since we treat the joystick as
 	//		the analog device it is.
-	if (buttonMap.ButtonDown(Button_Left) || buttonMap.ButtonDown(Button_Right))
+	if (buttonMap.ButtonDownDigital(Button_Left) || buttonMap.ButtonDownDigital(Button_Right))
 		turnheld += TicDup;
 	else
 		turnheld = 0;
@@ -618,9 +632,9 @@ void G_BuildTiccmd (usercmd_t *cmd)
 	// let movement keys cancel each other out
 	if (strafe)
 	{
-		if (buttonMap.ButtonDown(Button_Right))
+		if (buttonMap.ButtonDownDigital(Button_Right))
 			side += sidemove[speed];
-		if (buttonMap.ButtonDown(Button_Left))
+		if (buttonMap.ButtonDownDigital(Button_Left))
 			side -= sidemove[speed];
 	}
 	else
@@ -630,48 +644,48 @@ void G_BuildTiccmd (usercmd_t *cmd)
 		if (turnheld < SLOWTURNTICS)
 			tspeed += 2;		// slow turn
 		
-		if (buttonMap.ButtonDown(Button_Right))
+		if (buttonMap.ButtonDownDigital(Button_Right))
 		{
 			G_AddViewAngle (*angleturn[tspeed]);
 		}
-		if (buttonMap.ButtonDown(Button_Left))
+		if (buttonMap.ButtonDownDigital(Button_Left))
 		{
 			G_AddViewAngle (-*angleturn[tspeed]);
 		}
 	}
 
-	if (buttonMap.ButtonDown(Button_LookUp))
+	if (buttonMap.ButtonDownDigital(Button_LookUp))
 	{
 		G_AddViewPitch (lookspeed[speed]);
 	}
-	if (buttonMap.ButtonDown(Button_LookDown))
+	if (buttonMap.ButtonDownDigital(Button_LookDown))
 	{
 		G_AddViewPitch (-lookspeed[speed]);
 	}
 
-	if (buttonMap.ButtonDown(Button_MoveUp))
+	if (buttonMap.ButtonDownDigital(Button_MoveUp))
 		fly += flyspeed[speed];
-	if (buttonMap.ButtonDown(Button_MoveDown))
+	if (buttonMap.ButtonDownDigital(Button_MoveDown))
 		fly -= flyspeed[speed];
 
 	if (buttonMap.ButtonDown(Button_Klook))
 	{
-		if (buttonMap.ButtonDown(Button_Forward))
+		if (buttonMap.ButtonDownDigital(Button_Forward))
 			G_AddViewPitch (lookspeed[speed]);
-		if (buttonMap.ButtonDown(Button_Back))
+		if (buttonMap.ButtonDownDigital(Button_Back))
 			G_AddViewPitch (-lookspeed[speed]);
 	}
 	else
 	{
-		if (buttonMap.ButtonDown(Button_Forward))
+		if (buttonMap.ButtonDownDigital(Button_Forward))
 			forward += forwardmove[speed];
-		if (buttonMap.ButtonDown(Button_Back))
+		if (buttonMap.ButtonDownDigital(Button_Back))
 			forward -= forwardmove[speed];
 	}
 
-	if (buttonMap.ButtonDown(Button_MoveRight))
+	if (buttonMap.ButtonDownDigital(Button_MoveRight))
 		side += sidemove[speed];
-	if (buttonMap.ButtonDown(Button_MoveLeft))
+	if (buttonMap.ButtonDownDigital(Button_MoveLeft))
 		side -= sidemove[speed];
 
 	// buttons
@@ -703,35 +717,60 @@ void G_BuildTiccmd (usercmd_t *cmd)
 	if (buttonMap.ButtonDown(Button_ShowScores))	cmd->buttons |= BT_SHOWSCORES;
 	if (speed) cmd->buttons |= BT_RUN;
 
-	// Handle joysticks/game controllers.
-	float joyaxes[NUM_JOYAXIS];
-
-	I_GetAxes(joyaxes);
-
 	// Remap some axes depending on button state.
+	float axis_yaw = buttonMap.ButtonAnalog(Button_Left) - buttonMap.ButtonAnalog(Button_Right);
+	float axis_pitch = buttonMap.ButtonAnalog(Button_LookUp) - buttonMap.ButtonAnalog(Button_LookDown);
+	float axis_forward = buttonMap.ButtonAnalog(Button_Forward) - buttonMap.ButtonAnalog(Button_Back);
+	float axis_side = buttonMap.ButtonAnalog(Button_MoveLeft) - buttonMap.ButtonAnalog(Button_MoveRight);
+	float axis_up = buttonMap.ButtonAnalog(Button_MoveUp) - buttonMap.ButtonAnalog(Button_MoveDown);
+
 	if (buttonMap.ButtonDown(Button_Strafe) || (buttonMap.ButtonDown(Button_Mlook) && lookstrafe))
 	{
-		joyaxes[JOYAXIS_Side] = joyaxes[JOYAXIS_Yaw];
-		joyaxes[JOYAXIS_Yaw] = 0;
+		axis_side = axis_yaw;
+		axis_yaw = 0.0f;
 	}
+
 	if (buttonMap.ButtonDown(Button_Mlook))
 	{
-		joyaxes[JOYAXIS_Pitch] = joyaxes[JOYAXIS_Forward];
-		joyaxes[JOYAXIS_Forward] = 0;
+		axis_pitch = axis_forward;
+		axis_forward = 0.0f;
 	}
 
-	if (joyaxes[JOYAXIS_Pitch] != 0)
+	if (cl_analog_straferun)
 	{
-		G_AddViewPitch(joyint(joyaxes[JOYAXIS_Pitch] * 2048));
-	}
-	if (joyaxes[JOYAXIS_Yaw] != 0)
-	{
-		G_AddViewAngle(joyint(-1280 * joyaxes[JOYAXIS_Yaw]));
+		// Rescale diagonal analog input from roughly [0.77, 0.77] to [1.0, 1.0],
+		// which enables analog sticks to be able to strafe run like a keyboard can.
+
+		// This is inaccurate to how Doom had originally handled analog input, but
+		// that's why it's an option, after all.
+
+		const float sqrtOf2Frac = 0.41421356237309504880; // sqrt(2)'s fractional value
+
+		float move_min = min<float>(fabs(axis_side), fabs(axis_forward));
+		float move_max = max<float>(fabs(axis_side), fabs(axis_forward));
+
+		float scale = 1.0f;
+		if (move_max > EQUAL_EPSILON)
+		{
+			scale += (move_min / move_max) * sqrtOf2Frac;
+		}
+
+		axis_forward = std::clamp(axis_forward * scale, -1.f, 1.f);
+		axis_side = std::clamp(axis_side * scale, -1.f, 1.f);
 	}
 
-	side -= joyint(sidemove[speed] * joyaxes[JOYAXIS_Side]);
-	forward += joyint(joyaxes[JOYAXIS_Forward] * forwardmove[speed]);
-	fly += joyint(joyaxes[JOYAXIS_Up] * 2048);
+	if (axis_pitch != 0)
+	{
+		G_AddViewPitch(joyint(axis_pitch * ANALOG_LOOK_BASE * cl_analog_sensitivity_pitch));
+	}
+	if (axis_yaw != 0)
+	{
+		G_AddViewAngle(joyint(-ANALOG_LOOK_BASE * cl_analog_sensitivity_yaw * axis_yaw));
+	}
+
+	side    -= joyint(axis_side    *    sidemove[cl_analog_run | speed]);
+	forward += joyint(axis_forward * forwardmove[cl_analog_run | speed]);
+	fly += joyint(axis_up * 2048);
 
 	// Handle mice.
 	if (!buttonMap.ButtonDown(Button_Mlook) && !freelook)
@@ -809,6 +848,17 @@ void G_BuildTiccmd (usercmd_t *cmd)
 
 	cmd->forwardmove <<= 8;
 	cmd->sidemove <<= 8;
+}
+
+ADD_STAT (analog)
+{
+	FString out;
+
+	float axis_forward = buttonMap.ButtonAnalog(Button_Forward) - buttonMap.ButtonAnalog(Button_Back);
+	float axis_side = buttonMap.ButtonAnalog(Button_MoveLeft) - buttonMap.ButtonAnalog(Button_MoveRight);
+	out.AppendFormat("[%.3f, %.3f]", axis_forward, axis_side);
+
+	return out;
 }
 
 static int LookAdjust(int look)
@@ -1014,7 +1064,7 @@ bool G_Responder (event_t *ev)
 				stricmp (cmd, "screenshot")))
 			{
 				M_StartControlPanel(true);
-				M_SetMenu(NAME_Mainmenu, -1);
+				M_SetMenu(NAME_MainMenu, -1);
 				return true;
 			}
 			else
@@ -1104,6 +1154,37 @@ static void G_FullConsole()
 
 }
 
+void D_RunCutscene()
+{
+	// Only single player games can cancel out of the screen job via client-side logic.
+	if (ScreenJobTick() && !demoplayback)
+	{
+		if (netgame)
+		{
+			// Only the host can determine this.
+			if (consoleplayer != Net_Arbitrator)
+				return;
+
+			int type = ST_VOTE;
+			IFVM(ScreenJobRunner, GetSkipType)
+				type = VMCallSingle<int>(func, cutscene.runner);
+
+			if (type != ST_UNSKIPPABLE)
+				return;
+		}
+
+		Net_WriteInt8(DEM_ENDSCREENJOB);
+	}
+}
+
+// This is used to allow the server to check for when players are ready to advance. For singleplayer we can just
+// use the net message from the cutscene finishing to know when to go.
+static void D_CheckCutsceneAdvance()
+{
+	if (netgame && !demoplayback && Net_CheckCutsceneReady())
+		Net_AdvanceCutscene();
+}
+
 //
 // G_Ticker
 // Make ticcmd_ts for the players.
@@ -1114,7 +1195,7 @@ void G_Ticker ()
 
 	// do player reborns if needed
 	// TODO: These should really be moved to queues.
-	for (int i = 0; i < MAXPLAYERS; ++i)
+	for (unsigned int i = 0; i < MAXPLAYERS; ++i)
 	{
 		if (!playeringame[i])
 			continue;
@@ -1152,6 +1233,12 @@ void G_Ticker ()
 			break;
 		case ga_savegame:
 			G_DoSaveGame (true, false, savegamefile, savedescription.GetChars());
+			gameaction = ga_nothing;
+			savegamefile = "";
+			savedescription = "";
+			break;
+		case ga_quicksave:
+			G_DoSaveGame(true, true, savegamefile, savedescription.GetChars());
 			gameaction = ga_nothing;
 			savegamefile = "";
 			savedescription = "";
@@ -1205,7 +1292,7 @@ void G_Ticker ()
 		C_AdjustBottom ();
 	}
 
-	// get commands, check consistancy, and build new consistancy check
+	// get commands
 	const int curTic = gametic / TicDup;
 
 	//Added by MC: For some of that bot stuff. The main bot function.
@@ -1221,9 +1308,6 @@ void G_Ticker ()
 			G_WriteDemoTiccmd(nextCmd, client, curTic);
 
 		players[client].oldbuttons = cmd->buttons;
-		// If the user alt-tabbed away, paused gets set to -1. In this case,
-		// we do not want to read more demo commands until paused is no
-		// longer negative.
 		if (demoplayback)
 			G_ReadDemoTiccmd(cmd, client);
 		else
@@ -1261,11 +1345,7 @@ void G_Ticker ()
 
 	case GS_CUTSCENE:
 	case GS_INTRO:
-		if (ScreenJobTick())
-		{
-			// synchronize termination with the playsim.
-			Net_WriteInt8(DEM_ENDSCREENJOB);
-		}
+		D_CheckCutsceneAdvance();
 		break;
 
 	default:
@@ -1289,7 +1369,7 @@ void G_PlayerFinishLevel (int player, EFinishLevelType mode, int flags)
 {
 	IFVM(PlayerPawn, PlayerFinishLevel)
 	{
-		VMCallVoid(func, players[player].mo, (int)mode, flags);
+		CallVM<void>(func, players[player].mo, (int)mode, flags);
 	}
 }
 
@@ -1308,7 +1388,7 @@ void FLevelLocals::PlayerReborn (int player)
 	int 		itemcount;
 	int 		secretcount;
 	int			chasecam;
-	uint8_t		currclass;
+	int			currclass;
 	userinfo_t  userinfo;	// [RH] Save userinfo
 	AActor *actor;
 	PClassActor *cls;
@@ -1362,7 +1442,7 @@ void FLevelLocals::PlayerReborn (int player)
 
 		IFVIRTUALPTRNAME(actor, NAME_PlayerPawn, GiveDefaultInventory)
 		{
-			VMCallVoid(func, actor);
+			CallVM<void>(func, actor);
 		}
 		p->ReadyWeapon = p->PendingWeapon;
 	}
@@ -1440,7 +1520,7 @@ double FLevelLocals::PlayersRangeFromSpot (FPlayerStart *spot)
 {
 	double closest = INT_MAX;
 	double distance;
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < MAXPLAYERS; i++)
 	{
@@ -1536,7 +1616,7 @@ void FLevelLocals::DeathMatchSpawnPlayer (int playernum)
 		I_Error ("No deathmatch starts");
 
 	bool hasSpawned = false;
-	for (int i = 0; i < MAXPLAYERS; ++i)
+	for (unsigned int i = 0; i < MAXPLAYERS; ++i)
 	{
 		if (PlayerInGame(i) && Players[i]->mo != nullptr && Players[i]->health > 0)
 		{
@@ -1766,7 +1846,7 @@ void G_DoPlayerPop(int playernum)
 	Printf("%s\n", message.GetChars());
 
 	// [RH] Revert each player to their own view if spying through the player who left
-	for (int ii = 0; ii < MAXPLAYERS; ++ii)
+	for (int ii = 0; ii < signed(MAXPLAYERS); ++ii)
 	{
 		if (playeringame[ii] && players[ii].camera == players[playernum].mo)
 		{
@@ -1976,6 +2056,7 @@ void G_DoLoadGame ()
 	arc("Save Version", SaveVersion);
 	arc("Engine", engine);
 	arc("Current Map", map);
+	arc("GameUUID", GameUUID);
 
 	if (engine.CompareNoCase(GAMESIG) != 0)
 	{
@@ -2056,8 +2137,8 @@ void G_DoLoadGame ()
 	arc("importantcvars", cvar);
 	if (!cvar.IsEmpty())
 	{
-		uint8_t *vars_p = (uint8_t *)cvar.GetChars();
-		C_ReadCVars(&vars_p);
+		auto vars_p = cvar.GetTArrayView();
+		C_ReadCVars(vars_p);
 	}
 	else
 	{
@@ -2111,9 +2192,9 @@ void G_DoLoadGame ()
 // Called by the menu task.
 // Description is a 24 byte text string
 //
-void G_SaveGame (const char *filename, const char *description)
+void G_SaveGame (const char *filename, const char *description, bool quick)
 {
-	if (sendsave || gameaction == ga_savegame)
+	if (sendsave || gameaction == ga_savegame || gameaction == ga_quicksave)
 	{
 		Printf ("%s\n", GStrings.GetString("TXT_SAVEPENDING"));
 	}
@@ -2129,11 +2210,25 @@ void G_SaveGame (const char *filename, const char *description)
     {
 		Printf ("%s\n", GStrings.GetString("TXT_SPPLAYERDEAD"));
     }
+	else if (netgame && net_limitsaves && !players[consoleplayer].settings_controller)
+	{
+		Printf("Only settings controllers can save the game\n");
+	}
 	else
 	{
 		savegamefile = filename;
 		savedescription = description;
-		sendsave = true;
+		if (quick)
+		{
+			sendsave = false;
+			gameaction = ga_quicksave;
+		}
+		else
+		{
+			sendsave = true;
+			if (gameaction == ga_quicksave)
+				gameaction = ga_nothing;
+		}
 	}
 }
 
@@ -2164,6 +2259,10 @@ CUSTOM_CVAR (Int, quicksaverotationcount, 4, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
 void G_DoAutoSave ()
 {
+	// Never autosave in netgames since you can't load this properly anyway.
+	if (netgame)
+		return;
+
 	FString description;
 	FString file;
 	// Keep up to four autosaves at a time
@@ -2199,6 +2298,10 @@ void G_DoAutoSave ()
 
 void G_DoQuickSave ()
 {
+	// Never quicksave in netgames since you can't load this properly anyway.
+	if (netgame)
+		return;
+
 	FString description;
 	FString file;
 	// Keeps a rotating set of quicksaves
@@ -2222,7 +2325,7 @@ void G_DoQuickSave ()
 
 	readableTime = myasctime ();
 	description.Format("Quicksave %s", readableTime);
-	G_DoSaveGame (true, true, file, description.GetChars());
+	G_SaveGame(file.GetChars(), description.GetChars(), true);
 }
 
 
@@ -2341,6 +2444,7 @@ void G_DoSaveGame (bool okForQuicksave, bool forceQuicksave, FString filename, c
 	savegameinfo.AddString("Software", buf)
 		.AddString("Engine", GAMESIG)
 		("Save Version", ver)
+		("GameUUID", GameUUID)
 		.AddString("Title", description)
 		.AddString("Current Map", primaryLevel->MapName.GetChars());
 
@@ -2443,14 +2547,14 @@ void G_ReadDemoTiccmd (usercmd_t *cmd, int player)
 
 	while (id != DEM_USERCMD && id != DEM_EMPTYUSERCMD)
 	{
-		if (!demorecording && demo_p >= zdembodyend)
+		if (!demorecording && demo_p.Data() >= zdembodyend)
 		{
 			// nothing left in the BODY chunk, so end playback.
 			G_CheckDemoStatus ();
 			break;
 		}
 
-		id = ReadInt8 (&demo_p);
+		id = ReadInt8 (demo_p);
 
 		switch (id)
 		{
@@ -2469,7 +2573,7 @@ void G_ReadDemoTiccmd (usercmd_t *cmd, int player)
 
 		case DEM_DROPPLAYER:
 			{
-				uint8_t i = ReadInt8 (&demo_p);
+				uint8_t i = ReadInt8 (demo_p);
 				if (i < MAXPLAYERS)
 				{
 					playeringame[i] = false;
@@ -2478,7 +2582,7 @@ void G_ReadDemoTiccmd (usercmd_t *cmd, int player)
 			break;
 
 		default:
-			Net_DoCommand (id, &demo_p, player);
+			Net_DoCommand (id, demo_p, player);
 			break;
 		}
 	}
@@ -2510,30 +2614,25 @@ void G_WriteDemoTiccmd (usercmd_t *cmd, int player, int buf)
 
 	// [RH] Write any special "ticcmds" for this player to the demo
 	if ((specdata = ClientStates[player].Tics[buf % BACKUPTICS].Data.GetData (&speclen)) && !(gametic % TicDup))
-	{
-		memcpy (demo_p, specdata, speclen);
-		demo_p += speclen;
-
-		ClientStates[player].Tics[buf % BACKUPTICS].Data.SetData(nullptr, 0);
-	}
+		WriteBytes(TArrayView(specdata, speclen), demo_p);
 
 	// [RH] Now write out a "normal" ticcmd.
 	WriteUserCmdMessage (*cmd, &players[player].cmd, demo_p);
 
 	// [RH] Bigger safety margin
-	if (demo_p > demobuffer + maxdemosize - 64)
+	if (demo_p.Data() > demobuffer.Data() + demobuffer.Size() - 64)
 	{
-		ptrdiff_t pos = demo_p - demobuffer;
-		ptrdiff_t spot = streamPos - demobuffer;
-		ptrdiff_t comp = democompspot - demobuffer;
-		ptrdiff_t body = demobodyspot - demobuffer;
+		ptrdiff_t pos = demo_p.Data() - demobuffer.Data();
+		ptrdiff_t spot = streamPos - demobuffer.Data();
+		ptrdiff_t comp = democompspot - demobuffer.Data();
+		ptrdiff_t body = demobodyspot - demobuffer.Data();
 		// [RH] Allocate more space for the demo
 		maxdemosize += 0x20000;
-		demobuffer = (uint8_t *)M_Realloc (demobuffer, maxdemosize);
-		demo_p = demobuffer + pos;
-		streamPos = demobuffer + spot;
-		democompspot = demobuffer + comp;
-		demobodyspot = demobuffer + body;
+		demobuffer.Resize(maxdemosize);
+		demo_p = TArrayView(demobuffer.Data() + pos, demobuffer.Size() - pos);
+		streamPos = demobuffer.Data() + spot;
+		democompspot = demobuffer.Data() + comp;
+		demobodyspot = demobuffer.Data() + body;
 	}
 }
 
@@ -2549,7 +2648,7 @@ void G_RecordDemo (const char* name)
 	FixPathSeperator (demoname);
 	DefaultExtension (demoname, ".lmp");
 	maxdemosize = 0x20000;
-	demobuffer = (uint8_t *)M_Malloc (maxdemosize);
+	demobuffer.Resize(maxdemosize);
 	demorecording = true; 
 }
 
@@ -2560,41 +2659,39 @@ void G_RecordDemo (const char* name)
 
 void G_BeginRecording (const char *startmap)
 {
-	int i;
+	unsigned int i;
 
 	if (startmap == NULL)
 	{
 		startmap = primaryLevel->MapName.GetChars();
 	}
-	demo_p = demobuffer;
+	demo_p = TArrayView(demobuffer.Data(), demobuffer.Size());
 
-	WriteInt32 (FORM_ID, &demo_p);			// Write FORM ID
-	demo_p += 4;							// Leave space for len
-	WriteInt32 (ZDEM_ID, &demo_p);			// Write ZDEM ID
+	WriteInt32 (FORM_ID, demo_p);			// Write FORM ID
+	AdvanceStream(demo_p, 4);				// Leave space for len
+	WriteInt32 (ZDEM_ID, demo_p);			// Write ZDEM ID
 
 	// Write header chunk
-	StartChunk (ZDHD_ID, &demo_p);
-	WriteInt16 (DEMOGAMEVERSION, &demo_p);	// Write ZDoom version
-	*demo_p++ = 2;							// Write minimum version needed to use this demo.
-	*demo_p++ = 3;							// (Useful?)
+	StartChunk (ZDHD_ID, demo_p);
+	WriteInt16 (DEMOGAMEVERSION, demo_p);	// Write ZDoom version
+	WriteInt8(2, demo_p);					// Write minimum version needed to use this demo.
+	WriteInt8(3, demo_p);					// (Useful?)
 
-	strcpy((char*)demo_p, startmap);		// Write name of map demo was recorded on.
-	demo_p += strlen(startmap) + 1;
-	WriteInt32(rngseed, &demo_p);			// Write RNG seed
-	*demo_p++ = consoleplayer;
-	FinishChunk (&demo_p);
+	WriteString(startmap, demo_p);			// Write name of map demo was recorded on.
+	WriteInt32(rngseed, demo_p);			// Write RNG seed
+	WriteInt8(consoleplayer, demo_p);
+	FinishChunk (demo_p);
 
 	// Write player info chunks
 	for (i = 0; i < MAXPLAYERS; i++)
 	{
 		if (playeringame[i])
 		{
-			StartChunk(UINF_ID, &demo_p);
-			WriteInt8((uint8_t)i, &demo_p);
+			StartChunk(UINF_ID, demo_p);
+			WriteInt8((uint8_t)i, demo_p);
 			auto str = D_GetUserInfoStrings(i);
-			memcpy(demo_p, str.GetChars(), str.Len() + 1);
-			demo_p += str.Len();
-			FinishChunk(&demo_p);
+			WriteFString(str, demo_p);
+			FinishChunk(demo_p);
 		}
 	}
 
@@ -2603,29 +2700,29 @@ void G_BeginRecording (const char *startmap)
 	// enough.
 	if (multiplayer)
 	{
-		StartChunk (NETD_ID, &demo_p);
-		FinishChunk (&demo_p);
+		StartChunk (NETD_ID, demo_p);
+		FinishChunk (demo_p);
 	}
 
 	// Write cvars chunk
-	StartChunk (VARS_ID, &demo_p);
-	C_WriteCVars (&demo_p, CVAR_SERVERINFO|CVAR_DEMOSAVE);
-	FinishChunk (&demo_p);
+	StartChunk (VARS_ID, demo_p);
+	C_WriteCVars (demo_p, CVAR_SERVERINFO|CVAR_DEMOSAVE);
+	FinishChunk (demo_p);
 
 	// Write weapon ordering chunk
-	StartChunk (WEAP_ID, &demo_p);
-	P_WriteDemoWeaponsChunk(&demo_p);
-	FinishChunk (&demo_p);
+	StartChunk (WEAP_ID, demo_p);
+	P_WriteDemoWeaponsChunk(demo_p);
+	FinishChunk (demo_p);
 
 	// Indicate body is compressed
-	StartChunk (COMP_ID, &demo_p);
-	democompspot = demo_p;
-	WriteInt32 (0, &demo_p);
-	FinishChunk (&demo_p);
+	StartChunk (COMP_ID, demo_p);
+	democompspot = demo_p.Data();
+	WriteInt32 (0, demo_p);
+	FinishChunk (demo_p);
 
 	// Begin BODY chunk
-	StartChunk (BODY_ID, &demo_p);
-	demobodyspot = demo_p;
+	StartChunk (BODY_ID, demo_p);
+	demobodyspot = demo_p.Data();
 }
 
 
@@ -2676,7 +2773,8 @@ bool G_ProcessIFFDemo (FString &mapname)
 	bool headerHit = false;
 	bool bodyHit = false;
 	int numPlayers = 0;
-	int id, len, i;
+	int id, len;
+	unsigned int i;
 	uLong uncompSize = 0;
 	uint8_t *nextchunk;
 
@@ -2685,13 +2783,13 @@ bool G_ProcessIFFDemo (FString &mapname)
 	for (i = 0; i < MAXPLAYERS; i++)
 		playeringame[i] = 0;
 
-	len = ReadInt32 (&demo_p);
-	zdemformend = demo_p + len + (len & 1);
+	len = ReadInt32 (demo_p);
+	zdemformend = demo_p.Data() + len + (len & 1);
 
 	// Check to make sure this is a ZDEM chunk file.
 	// TODO: Support multiple FORM ZDEMs in a CAT. Might be useful.
 
-	id = ReadInt32 (&demo_p);
+	id = ReadInt32 (demo_p);
 	if (id != ZDEM_ID)
 	{
 		Printf ("Not a " GAMENAME " demo file!\n");
@@ -2700,11 +2798,11 @@ bool G_ProcessIFFDemo (FString &mapname)
 
 	// Process all chunks until a BODY chunk is encountered.
 
-	while (demo_p < zdemformend && !bodyHit)
+	while (demo_p.Data() < zdemformend && !bodyHit)
 	{
-		id = ReadInt32 (&demo_p);
-		len = ReadInt32 (&demo_p);
-		nextchunk = demo_p + len + (len & 1);
+		id = ReadInt32 (demo_p);
+		len = ReadInt32 (demo_p);
+		nextchunk = demo_p.Data() + len + (len & 1);
 		if (nextchunk > zdemformend)
 		{
 			Printf ("Demo is mangled!\n");
@@ -2716,48 +2814,47 @@ bool G_ProcessIFFDemo (FString &mapname)
 		case ZDHD_ID:
 			headerHit = true;
 
-			demover = ReadInt16 (&demo_p);	// ZDoom version demo was created with
+			demover = ReadInt16 (demo_p);	// ZDoom version demo was created with
 			if (demover < MINDEMOVERSION)
 			{
 				Printf ("Demo requires an older version of " GAMENAME "!\n");
 				//return true;
 			}
-			if (ReadInt16 (&demo_p) > DEMOGAMEVERSION)	// Minimum ZDoom version
+			if (ReadInt16 (demo_p) > DEMOGAMEVERSION)	// Minimum ZDoom version
 			{
 				Printf ("Demo requires a newer version of " GAMENAME "!\n");
 				return true;
 			}
 			if (demover >= 0x21a)
 			{
-				mapname = (char*)demo_p;
-				demo_p += mapname.Len() + 1;
+				mapname = ReadStringConst(demo_p);
 			}
 			else
 			{
-				mapname = FString((char*)demo_p, 8);
-				demo_p += 8;
+				mapname = FString((char*)demo_p.Data(), 8);
+				AdvanceStream(demo_p, 8);
 			}
-			rngseed = ReadInt32 (&demo_p);
+			rngseed = ReadInt32 (demo_p);
 			// Only reset the RNG if this demo is not in conjunction with a savegame.
 			if (mapname[0] != 0)
 			{
 				FRandom::StaticClearRandom ();
 			}
-			consoleplayer = *demo_p++;
+			consoleplayer = ReadInt8(demo_p);
 			break;
 
 		case VARS_ID:
-			C_ReadCVars (&demo_p);
+			C_ReadCVars (demo_p);
 			break;
 
 		case UINF_ID:
-			i = ReadInt8 (&demo_p);
+			i = ReadInt8 (demo_p);
 			if (!playeringame[i])
 			{
 				playeringame[i] = 1;
 				numPlayers++;
 			}
-			D_ReadUserInfoStrings (i, &demo_p, false);
+			D_ReadUserInfoStrings (i, demo_p, false);
 			break;
 
 		case NETD_ID:
@@ -2765,21 +2862,21 @@ bool G_ProcessIFFDemo (FString &mapname)
 			break;
 
 		case WEAP_ID:
-			P_ReadDemoWeaponsChunk(&demo_p);
+			P_ReadDemoWeaponsChunk(demo_p);
 			break;
 
 		case BODY_ID:
 			bodyHit = true;
-			zdembodyend = demo_p + len;
+			zdembodyend = demo_p.Data() + len;
 			break;
 
 		case COMP_ID:
-			uncompSize = ReadInt32 (&demo_p);
+			uncompSize = ReadInt32 (demo_p);
 			break;
 		}
 
 		if (!bodyHit)
-			demo_p = nextchunk;
+			demo_p = TArrayView(nextchunk, demo_p.Size() + demo_p.Data() - nextchunk);
 	}
 
 	if (!headerHit)
@@ -2806,17 +2903,16 @@ bool G_ProcessIFFDemo (FString &mapname)
 
 	if (uncompSize > 0)
 	{
-		uint8_t *uncompressed = (uint8_t*)M_Malloc(uncompSize);
-		int r = uncompress (uncompressed, &uncompSize, demo_p, uLong(zdembodyend - demo_p));
+		auto uncompressed = TArray<uint8_t>(uncompSize, true);
+		int r = uncompress (uncompressed.Data(), &uncompSize, demo_p.Data(), uLong(zdembodyend - demo_p.Data()));
 		if (r != Z_OK)
 		{
 			Printf ("Could not decompress demo! %s\n", M_ZLibError(r).GetChars());
-			M_Free(uncompressed);
 			return true;
 		}
-		M_Free (demobuffer);
-		zdembodyend = uncompressed + uncompSize;
-		demobuffer = demo_p = uncompressed;
+		zdembodyend = uncompressed.Data() + uncompSize;
+		demobuffer = std::move(uncompressed);
+		demo_p = TArrayView(demobuffer.Data(), uncompSize);
 	}
 
 	return false;
@@ -2833,9 +2929,9 @@ void G_DoPlayDemo (void)
 	demolump = fileSystem.CheckNumForFullName (defdemoname.GetChars(), true);
 	if (demolump >= 0)
 	{
-		int demolen = fileSystem.FileLength (demolump);
-		demobuffer = (uint8_t *)M_Malloc(demolen);
-		fileSystem.ReadFile (demolump, demobuffer);
+		size_t demolen = fileSystem.FileLength (demolump);
+		demobuffer.Resize(demolen);
+		fileSystem.ReadFile (demolump, demobuffer.Data());
 	}
 	else
 	{
@@ -2846,26 +2942,26 @@ void G_DoPlayDemo (void)
 		{
 			I_Error("Unable to open demo '%s'", defdemoname.GetChars());
 		}
-		auto len = fr.GetLength();
-		demobuffer = (uint8_t*)M_Malloc(len);
-		if (fr.Read(demobuffer, len) != len)
+		size_t demolen = fr.GetLength();
+		demobuffer.Resize(demolen);
+		if (fr.Read(demobuffer.Data(), demolen) != demolen)
 		{
 			I_Error("Unable to read demo '%s'", defdemoname.GetChars());
 		}
 	}
-	demo_p = demobuffer;
+	demo_p = TArrayView(demobuffer.Data(), demobuffer.Size());
 
 	if (singledemo) Printf ("Playing demo %s\n", defdemoname.GetChars());
 
 	C_BackupCVars ();		// [RH] Save cvars that might be affected by demo
 
-	if (ReadInt32 (&demo_p) != FORM_ID)
+	if (ReadInt32 (demo_p) != FORM_ID)
 	{
 		const char *eek = "Cannot play non-" GAMENAME " demos.\n";
 
 		C_ForgetCVars();
-		M_Free(demobuffer);
-		demo_p = demobuffer = NULL;
+		demobuffer.Reset();
+		demo_p = NULL;
 		if (singledemo)
 		{
 			I_Error ("%s", eek);
@@ -2945,14 +3041,13 @@ bool G_CheckDemoStatus (void)
 			endtime = I_GetTime () - starttime;
 
 		C_RestoreCVars ();		// [RH] Restore cvars demo might have changed
-		M_Free (demobuffer);
-		demobuffer = NULL;
+		demobuffer.Reset();
 
 		P_SetupWeapons_ntohton();
 		demoplayback = false;
 		netgame = false;
 		multiplayer = false;
-		for (int i = 1; i < MAXPLAYERS; i++)
+		for (unsigned int i = 1; i < MAXPLAYERS; i++)
 			playeringame[i] = 0;
 		consoleplayer = 0;
 		players[0].camera = nullptr;
@@ -2989,9 +3084,7 @@ bool G_CheckDemoStatus (void)
 
 	if (demorecording)
 	{
-		uint8_t *formlen;
-
-		WriteInt8 (DEM_STOP, &demo_p);
+		WriteInt8 (DEM_STOP, demo_p);
 
 		if (demo_compress)
 		{
@@ -2999,32 +3092,31 @@ bool G_CheckDemoStatus (void)
 			// a compressed version. If the BODY successfully compresses, the
 			// contents of the COMP chunk will be changed to indicate the
 			// uncompressed size of the BODY.
-			uLong len = uLong(demo_p - demobodyspot);
+			uLong len = uLong(demo_p.Data() - demobodyspot);
 			uLong outlen = (len + len/100 + 12);
 			TArray<Byte> compressed(outlen, true);
 			int r = compress2 (compressed.Data(), &outlen, demobodyspot, len, 9);
 			if (r == Z_OK && outlen < len)
 			{
-				formlen = democompspot;
-				WriteInt32 (len, &democompspot);
+				UncheckedWriteInt32 (len, &democompspot);
 				memcpy (demobodyspot, compressed.Data(), outlen);
-				demo_p = demobodyspot + outlen;
+				demo_p = TArrayView(demobodyspot + outlen, demo_p.Size() + len - outlen);
 			}
 		}
-		FinishChunk (&demo_p);
-		formlen = demobuffer + 4;
-		WriteInt32 (int(demo_p - demobuffer - 8), &formlen);
+		FinishChunk (demo_p);
+		uint8_t* formlen = demobuffer.Data() + 4;
+		UncheckedWriteInt32 (int(demo_p.Data() - demobuffer.Data() - 8), &formlen);
 
 		auto fw = FileWriter::Open(demoname.GetChars());
 		bool saved = false;
 		if (fw != nullptr)
 		{
-			const size_t size = demo_p - demobuffer;
-			saved = fw->Write(demobuffer, size) == size;
+			const size_t size = demo_p.Data() - demobuffer.Data();
+			saved = fw->Write(demobuffer.Data(), size) == size;
 			delete fw;
 			if (!saved) RemoveFile(demoname.GetChars());
 		}
-		M_Free (demobuffer); 
+		demobuffer.Reset();
 		demorecording = false;
 		stoprecording = false;
 		if (saved)
@@ -3044,7 +3136,7 @@ void G_StartSlideshow(FLevelLocals *Level, FName whichone, int state)
 {
 	auto SelectedSlideshow = whichone == NAME_None ? Level->info->slideshow : whichone;
 	auto slide = F_StartIntermission(SelectedSlideshow, state);
-	RunIntermission(nullptr, nullptr, slide, nullptr, [](bool)
+	RunIntermission(nullptr, nullptr, slide, nullptr, false, [](bool)
 	{
 		primaryLevel->SetMusic();
 		gamestate = GS_LEVEL;

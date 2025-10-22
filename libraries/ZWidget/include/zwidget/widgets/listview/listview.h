@@ -6,6 +6,7 @@
 #include <functional>
 
 class Scrollbar;
+class Dropdown;
 
 class ListView : public Widget
 {
@@ -22,6 +23,10 @@ public:
 	void SetSelectedItem(int index);
 	void ScrollToItem(int index);
 
+	double GetPreferredWidth();
+	double GetPreferredHeight();
+	double GetMinimumHeight() const;
+
 	void Activate();
 
 	std::function<void(int)> OnChanged;
@@ -29,17 +34,20 @@ public:
 
 protected:
 	void OnPaint(Canvas* canvas) override;
-	void OnPaintFrame(Canvas* canvas) override;
-	bool OnMouseDown(const Point& pos, int key) override;
-	bool OnMouseDoubleclick(const Point& pos, int key) override;
-	bool OnMouseWheel(const Point& pos, EInputKey key) override;
-	void OnKeyDown(EInputKey key) override;
+	bool OnMouseDown(const Point& pos, InputKey key) override;
+	bool OnMouseDoubleclick(const Point& pos, InputKey key) override;
+	bool OnMouseWheel(const Point& pos, InputKey key) override;
+	void OnKeyDown(InputKey key) override;
 	void OnGeometryChanged() override;
 	void OnScrollbarScroll();
+
+	static double getItemHeight();
 
 	Scrollbar* scrollbar = nullptr;
 
 	std::vector<std::vector<std::string>> items;
 	std::vector<double> columnwidths;
 	int selectedItem = 0;
+
+	friend Dropdown;
 };

@@ -60,6 +60,10 @@
 #include "s_music.h"
 #include "texturemanager.h"
 #include "v_draw.h"
+#include "d_net.h"
+
+extern int paused;
+extern bool pauseext;
 
 DVector2 AM_GetPosition();
 int Net_GetLatency(int *ld, int *ad);
@@ -498,6 +502,24 @@ DEFINE_ACTION_FUNCTION_NATIVE(_Sector, RemoveForceField, RemoveForceField)
 	 AdjustFloorClip(self);
 	 return 0;
  }
+
+int WorldPaused(bool checkLag)
+{
+	if (paused || (checkLag && Net_IsWaiting()))
+		return true;
+
+	if (netgame || gamestate != GS_LEVEL)
+		return false;
+
+	return pauseext || menuactive == MENU_On || ConsoleState == c_down || ConsoleState == c_falling;
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, WorldPaused, WorldPaused)
+{
+	PARAM_PROLOGUE;
+	PARAM_BOOL(checkLag);
+	ACTION_RETURN_BOOL(WorldPaused(checkLag));
+}
 
 static sector_t *PointInSectorXY(FLevelLocals *self, double x, double y)
 {
@@ -1742,8 +1764,36 @@ DEFINE_ACTION_FUNCTION_NATIVE(_Sector, SetXOffset, SetXOffset)
  {
 	 PARAM_SELF_STRUCT_PROLOGUE(FLevelLocals);
 	 PARAM_INT(skymist);
+	 PARAM_BOOL(usemist);
 	 self->skymisttexture = FSetTextureID(skymist);
+	 if (usemist)
+	 {
+		 self->flags3 |= LEVEL3_SKYMIST;
+	 }
+	 else
+	 {
+		 self->flags3 &= ~LEVEL3_SKYMIST;
+	 }
 	 InitSkyMap(self);
+	 return 0;
+ }
+
+ DEFINE_ACTION_FUNCTION(FLevelLocals, SetSkyFog)
+ {
+	 PARAM_SELF_STRUCT_PROLOGUE(FLevelLocals);
+	 PARAM_INT(fogdensity);
+	 self->skyfog = fogdensity;
+	 InitSkyMap(self);
+	 return 0;
+ }
+
+ DEFINE_ACTION_FUNCTION(FLevelLocals, SetThickFog)
+ {
+	 PARAM_SELF_STRUCT_PROLOGUE(FLevelLocals);
+	 PARAM_FLOAT(distance);
+	 PARAM_FLOAT(multiplier);
+	 self->thickfogdistance = distance;
+	 if (multiplier > 0.0) self->thickfogmultiplier = multiplier;
 	 return 0;
  }
 
@@ -2696,24 +2746,30 @@ DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, setFrozen, setFrozen)
 	return 0;
 }
 
-static DThinker* CreateClientsideThinker(FLevelLocals* self, PClass* type, int statnum)
+static DThinker* CreateThinker(FLevelLocals* self, PClass* type, int statnum, bool clientSide)
 {
 	if (type->IsDescendantOf(NAME_Actor))
 	{
-		ThrowAbortException(X_OTHER, "Clientside Actors cannot be created from this function");
+		ThrowAbortException(X_OTHER, "Actors cannot be created from this function");
+		return nullptr;
+	}
+	else if (type->IsDescendantOf(NAME_VisualThinker))
+	{
+		ThrowAbortException(X_OTHER, "VisualThinkers cannot be created from this function");
 		return nullptr;
 	}
 
-	return self->CreateClientsideThinker(type, statnum);
+	return clientSide ? self->CreateClientSideThinker(type, statnum) : self->CreateThinker(type, statnum);
 }
 
-DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, CreateClientsideThinker, CreateClientsideThinker)
+DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, CreateThinker, CreateThinker)
 {
 	PARAM_SELF_STRUCT_PROLOGUE(FLevelLocals);
 	PARAM_POINTER_NOT_NULL(type, PClass);
 	PARAM_INT(statnum);
+	PARAM_BOOL(clientSide);
 
-	ACTION_RETURN_OBJECT(CreateClientsideThinker(self, type, statnum));
+	ACTION_RETURN_OBJECT(CreateThinker(self, type, statnum, clientSide));
 }
 
 //=====================================================================================

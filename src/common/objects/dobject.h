@@ -92,7 +92,7 @@ class PClassActor;
 #define NATIVE_TYPE(object)			(object->StaticType())			// Passed an object, returns the type of the C++ class representing the object
 
 // Enumerations for the meta classes created by ClassReg::RegisterClass()
-struct ClassReg
+struct ClassReg : FAutoSegEntry<ClassReg>
 {
 	PClass *MyClass;
 	const char *Name;
@@ -102,6 +102,9 @@ struct ClassReg
 	void (*ConstructNative)(void *);
 	void(*InitNatives)();
 	unsigned int SizeOf;
+
+	ClassReg(PClass *mc, const char * nm, ClassReg * pt, ClassReg *vm, const size_t * ps, void (*cn)(void *), void(*in)(), unsigned int so)
+	: FAutoSegEntry(AutoSegs::TypeInfos, this), MyClass(mc), Name(nm), ParentType(pt), _VMExport(vm), Pointers(ps), ConstructNative(cn), InitNatives(in), SizeOf(so) {}
 
 	PClass *RegisterClass();
 	void SetupClass(PClass *cls);
@@ -134,13 +137,6 @@ public: \
 #define HAS_OBJECT_POINTERS \
 	static const size_t PointerOffsets[];
 
-#if defined(_MSC_VER)
-#	pragma section(SECTION_CREG,read)
-#	define _DECLARE_TI(cls) __declspec(allocate(SECTION_CREG)) ClassReg * const cls::RegistrationInfoPtr = &cls::RegistrationInfo;
-#else
-#	define _DECLARE_TI(cls) ClassReg * const cls::RegistrationInfoPtr __attribute__((section(SECTION_CREG))) = &cls::RegistrationInfo;
-#endif
-
 #define _IMP_PCLASS(cls, ptrs, create) \
 	ClassReg cls::RegistrationInfo = {\
 		nullptr, \
@@ -151,7 +147,6 @@ public: \
 		create, \
 		nullptr, \
 		sizeof(cls) }; \
-	_DECLARE_TI(cls) \
 	PClass *cls::StaticType() const { return RegistrationInfo.MyClass; }
 
 #define IMPLEMENT_CLASS(cls, isabstract, ptrs) \
@@ -244,6 +239,9 @@ public:
 	inline FString &StringVar(FName field);
 	template<class T> T*& PointerVar(FName field);
 	inline int* IntArray(FName field);
+
+	// Make sure native data is wiped correctly since it has no read barriers.
+	void ClearNativePointerFields(const TArrayView<FName>& types);
 
 	// This is only needed for swapping out PlayerPawns and absolutely nothing else!
 	virtual size_t PointerSubstitution (DObject *old, DObject *notOld, bool nullOnFail);
@@ -359,12 +357,14 @@ private:
 public:
 	inline bool IsNetworked() const { return (ObjectFlags & OF_Networked); }
 	inline uint32_t GetNetworkID() const { return _networkID; }
-	inline bool IsClientside() const { return (ObjectFlags & OF_ClientSide); }
+	inline bool IsClientSide() const { return (ObjectFlags & OF_ClientSide); }
 	void SetNetworkID(const uint32_t id);
 	void ClearNetworkID();
 	void RemoveFromNetwork();
 	virtual void EnableNetworking(const bool enable);
 };
+
+extern bool bPredictionGuard;
 
 // This is the only method aside from calling CreateNew that should be used for creating DObjects
 // to ensure that the Class pointer is always set.

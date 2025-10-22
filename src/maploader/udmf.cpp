@@ -5,6 +5,7 @@
 **
 **---------------------------------------------------------------------------
 ** Copyright 2008 Christoph Oelckers
+** Copyright 2017-2025 GZDoom Maintainers and Contributors
 ** All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
@@ -792,8 +793,17 @@ public:
 				break;
 
 			case NAME_light_softshadowradius:
+			case NAME_light_linearity:
+			case NAME_light_noshadowmap:
+			case NAME_light_dontlightactors:
+			case NAME_light_dontlightmap:
+			case NAME_light_shadowminquality:
 			case NAME_lm_suncolor:
+			case NAME_lm_sunintensity:
 			case NAME_lm_sampledist:
+			case NAME_lm_bounce:
+			case NAME_lm_ao:
+			case NAME_lm_dynamic:
 				CHECK_N(Zd | Zdt)
 					break;
 
@@ -2205,6 +2215,7 @@ public:
 
 				case NAME_lm_sampledist_floor:
 				case NAME_lm_sampledist_ceiling:
+				case NAME_lm_dynamic:
 					CHECK_N(Zd | Zdt)
 					break;
 
@@ -2619,7 +2630,7 @@ public:
 
 		// Create the real vertices
 		Level->vertexes.Alloc(ParsedVertices.Size());
-		memcpy(&Level->vertexes[0], &ParsedVertices[0], Level->vertexes.Size() * sizeof(vertex_t));
+		std::copy(&ParsedVertices[0], &ParsedVertices[0] + ParsedVertices.Size(), &Level->vertexes[0]);
 
 		// Create the real sectors
 		Level->sectors.Alloc(ParsedSectors.Size());

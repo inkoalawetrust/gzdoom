@@ -726,6 +726,8 @@ enum EParticleFlags
 	SPF_ROLLCENTER				= 1 << 13,
 	SPF_STRETCHPIXELS			= 1 << 14,
 	SPF_ALLOWSHADERS			= 1 << 15,
+	SPF_FADE_IN_OUT				= 1 << 16,
+	SPF_FADE_IN_HOLD_OUT		= 1 << 17,
 
 	SPF_RELATIVE				= SPF_RELPOS|SPF_RELVEL|SPF_RELACCEL|SPF_RELANG
 };
@@ -977,6 +979,7 @@ enum EDmgFlags
 	DMG_NO_PAIN = 1024,
 	DMG_EXPLOSION = 2048,
 	DMG_NO_ENHANCE = 4096,
+	DMG_RAILGUN = 8192,
 }
 
 enum EReplace
@@ -1149,6 +1152,12 @@ enum EGameAction
 	ga_screenshot,
 	ga_togglemap,
 	ga_fullconsole,
+	ga_resumeconversation,
+	ga_intro,
+	ga_intermission,
+	ga_titleloop,
+	ga_mapwarp,
+	ga_quicksave,
 };
 
 enum EPuffFlags
@@ -1420,6 +1429,7 @@ enum ELevelFlags
 	LEVEL3_LIGHTCREATED			= 0x00080000,	// a light had been created in the last frame
 	LEVEL3_NOFOGOFWAR			= 0x00100000,	// disables effect of r_radarclipper CVAR on this map
 	LEVEL3_SECRET				= 0x00200000,	// level is a secret level
+	LEVEL3_SKYMIST				= 0x00400000,   // level skyfog uses the skymist texture
 };
 
 // [RH] Compatibility flags.

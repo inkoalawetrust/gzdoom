@@ -335,6 +335,7 @@ public:
 	double		viewheight = 0;				// base height above floor for viewz
 	double		deltaviewheight = 0;		// squat speed.
 	double		bob = 0;					// bounded/scaled total velocity
+	int			BobTimer = 0;
 
 	// killough 10/98: used for realistic bobbing (i.e. not simply overall speed)
 	// mo->velx and mo->vely represent true velocity experienced by player.
@@ -353,7 +354,7 @@ public:
 										// is used during levels
 
 	int			inventorytics = 0;
-	uint8_t		CurrentPlayerClass = 0;		// class # for this player instance
+	int			CurrentPlayerClass = 0;		// class # for this player instance
 
 	int			frags[MAXPLAYERS] = {};		// kills of other players
 	int			fragcount = 0;				// [RH] Cumulative frags for this player
@@ -475,6 +476,9 @@ public:
 	void SetFOV(float fov);
 	bool HasWeaponsInSlot(int slot) const;
 	bool Resurrect();
+
+	static player_t* GetNextPlayer(player_t* p, bool noBots = false);
+	static int GetNextPlayerNumber(int pNum, bool noBots = false);
 
 	// Scaled angle adjustment info. Not for direct manipulation.
 	DRotator angleOffsetTargets;

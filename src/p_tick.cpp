@@ -46,6 +46,7 @@ extern uint8_t globalfreeze, globalchangefreeze;
 
 void C_Ticker();
 void M_Ticker();
+void D_RunCutscene();
 
 //==========================================================================
 //
@@ -57,7 +58,7 @@ void M_Ticker();
 //
 //==========================================================================
 
-void P_RunClientsideLogic()
+void P_RunClientSideLogic()
 {
 	C_Ticker();
 	M_Ticker();
@@ -67,7 +68,7 @@ void P_RunClientsideLogic()
 
 	if (gamestate == GS_LEVEL || gamestate == GS_TITLELEVEL)
 	{
-		for (int i = 0; i < MAXPLAYERS; ++i)
+		for (unsigned int i = 0; i < MAXPLAYERS; ++i)
 		{
 			if (playeringame[i] && players[i].inventorytics > 0)
 				--players[i].inventorytics;
@@ -75,7 +76,7 @@ void P_RunClientsideLogic()
 
 		for (auto level : AllLevels())
 		{
-			auto it = level->GetClientsideThinkerIterator<AActor>();
+			auto it = level->GetClientSideThinkerIterator<AActor>();
 			AActor* ac = nullptr;
 			while ((ac = it.Next()) != nullptr)
 			{
@@ -83,7 +84,7 @@ void P_RunClientsideLogic()
 				ac->ClearFOVInterpolation();
 			}
 
-			level->ClientsideThinkers.RunClientsideThinkers(level);
+			level->ClientSideThinkers.RunClientSideThinkers(level);
 		}
 
 		StatusBar->CallTick();
@@ -91,6 +92,10 @@ void P_RunClientsideLogic()
 		// TODO: Should this be called on all maps...?
 		if (gamestate == GS_LEVEL)
 			primaryLevel->automap->Ticker();
+	}
+	else if (gamestate == GS_CUTSCENE || gamestate == GS_INTRO)
+	{
+		D_RunCutscene();
 	}
 
 	// [MK] Additional ticker for UI events right after all others
@@ -142,7 +147,7 @@ void P_ClearLevelInterpolation()
 		}
 	}
 
-	for (int i = 0; i < MAXPLAYERS; i++)
+	for (unsigned int i = 0; i < MAXPLAYERS; i++)
 	{
 		if (playeringame[i])
 		{
@@ -166,7 +171,7 @@ void P_ClearLevelInterpolation()
 //
 void P_Ticker (void)
 {
-	int i;
+	unsigned int i;
 
 	for (auto Level : AllLevels())
 	{
